@@ -1,7 +1,5 @@
 # Acting on moving objects with generative robot policies: a preliminary observation
 
-*Jinda Jia, PhD student, CSE, UC San Diego (advisor: Dan Fu). Background in ML systems.*
-
 ## The problem
 Large generative robot policies take a noticeable fraction of a second to produce actions. If the target object keeps moving during that time, the actions are computed from an observation that is already stale. A policy that understands how the object is moving could compensate for this; one that doesn't will aim at where the object *was*.
 

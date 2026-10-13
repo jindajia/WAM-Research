@@ -1,12 +1,26 @@
 # Motion information, future prediction, and robot actions
 
-We study whether world-action models use observed object motion to predict and act, and how inference latency affects the opportunity to update those actions. Our focus is **Cosmos3-Nano-Policy-DROID**, which jointly generates video and actions. All experiments below are small simulation studies.
+We study whether world-action models use observed object motion to predict and act, and how inference latency affects the opportunity to update those actions. All experiments below are small simulation studies.
+
+**Checkpoints used**
+- [Cosmos3-Nano](https://huggingface.co/nvidia/Cosmos3-Nano) — general video world model; tested revision `e59a53c`.
+- [Cosmos3-Nano-Policy-DROID](https://huggingface.co/nvidia/Cosmos3-Nano-Policy-DROID) — robot policy jointly generating video and actions; tested revision `805c0d6`.
+
+DROID is post-trained on real-robot DROID data from a **mid-trained Cosmos3-Nano checkpoint**, rather than necessarily from the released Nano checkpoint tested here ([training details, §4.2.5](https://arxiv.org/html/2606.02800v4#S4.SS2.SSS5)).
 
 ## Summary: what we have learned
 
-1. **Readable motion information does not guarantee correct video prediction.** DROID's future-token features encode the observed ball velocity, yet its generated video does not reliably follow that motion.
-2. **Correct target prediction may still be insufficient for successful grasping — a working hypothesis.** The policy failed even on a stationary ball. *(To verify the prediction–action gap directly, we still need to confirm accurate pre-contact ball-position predictions in those same failed trials.)*
-3. **Static manipulation performance depends on the task and environment setup.** The same checkpoint failed our custom MuJoCo ball-grasping test but succeeded on the official RoboLab banana task. Several factors changed together, so the cause is not isolated.
+1. **Readable motion information does not guarantee correct video prediction.**
+
+   DROID's future tokens encode the observed ball velocity, yet its generated video does not reliably follow that motion.
+
+2. **Correct target prediction may still be insufficient for successful grasping.**
+
+   Working hypothesis: the policy failed even on a stationary ball. *(Next check: verify pre-contact position predictions in those same failed trials.)*
+
+3. **Task success also depends on the simulation environment and task setup.**
+
+   The same checkpoint failed static ball grasping in MuJoCo but succeeded at static banana manipulation in Isaac Sim; moving-target anticipation remained unreliable. *(The simulator's effect has not been isolated from other setup changes.)*
 
 These findings motivate studying the connections between **internal motion information, predicted futures, and executed actions**, rather than treating them as interchangeable measures of capability.
 
@@ -24,7 +38,7 @@ We then froze DROID and trained **linear velocity probes** on its four-step infe
 
 These probes read **input motion**, not future-position accuracy. Future tokens carry motion information, but that alone does not establish how the generator uses it. Five-frame conditioning is an experimental extension outside this checkpoint's single-observation fine-tuning setting.
 
-### Static grasping exposed a separate execution problem
+### Task performance across MuJoCo and Isaac Sim
 
 In our custom **MuJoCo** scene, DROID grasped a stationary ball **0/3** times; a scripted controller using the same action interface succeeded **3/3**. The policy approached the ball but closed too early, too high, or off target.
 

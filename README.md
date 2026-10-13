@@ -1,51 +1,66 @@
-# Acting on moving objects with world-action models
+# Motion information, future prediction, and robot actions
 
-## The problem
-Generative robot policies take close to a second to produce actions, so a moving target has already moved by the time they act. We study **Cosmos3-Nano-Policy-DROID**, a world-action model that generates future video and a 32-step action chunk together; its policy post-training uses real-robot DROID data. All tests below are simulated, with one scene each and a few seeds.
+We study whether world-action models use observed object motion to predict and act, and how inference latency affects the opportunity to update those actions. Our focus is **Cosmos3-Nano-Policy-DROID**, which jointly generates video and actions. All experiments below are small simulation studies.
 
-## 1. The policy's predicted video largely ignores observed motion
-A ball rolls across a table. The base video model **Cosmos3-Nano** and the policy checkpoint receive the **same five observed frames** (15 fps, 0.27 s) and predict the next 1.6 s. Reversing the history direction shifts base Nano's predicted ball by **+74 to +88 px** (reality: about +80 px), but DROID's by only **−9 to +17 px** (3 seeds × 2 camera views).
+## Summary: what we have learned
 
-![Base video model vs robot policy vs ground truth, ball rolling right and left](media/rolling_ball_comparison.gif)
+1. **Readable motion information does not guarantee correct video prediction.** DROID's future-token features encode the observed ball velocity, yet its generated video does not reliably follow that motion.
+2. **Correct target prediction may still be insufficient for successful grasping — a working hypothesis.** The policy failed even on a stationary ball. *(To verify the prediction–action gap directly, we still need to confirm accurate pre-contact ball-position predictions in those same failed trials.)*
+3. **Static manipulation performance depends on the task and environment setup.** The same checkpoint failed our custom MuJoCo ball-grasping test but succeeded on the official RoboLab banana task. Several factors changed together, so the cause is not isolated.
 
-*Cyan ring = last observed ball position. Matched comparison settings (35 denoising steps, guidance 3, video only), not the four-step deployment settings used below.*
+These findings motivate studying the connections between **internal motion information, predicted futures, and executed actions**, rather than treating them as interchangeable measures of capability.
 
-## 2. The motion is still readable inside the policy
-Linear probes on the frozen DROID checkpoint recover the ball's velocity during its normal four-step request, on held-out positions and an **unseen speed**, while a repeated-frame control fails. The features are available about **0.2–0.3 s** into a roughly one-second five-frame request. This shows the information is *decodable*, not that the policy *uses* it; it is not evidence of physical understanding or a causal mechanism.
+## 1. Evidence behind the findings
 
-## 3. Five-frame input and what it costs
-We extended the official single-observation path to accept **five frames** through the framework's existing conditioning machinery, without retraining. This is an experimental input extension outside the policy's fine-tuning setting, not a demonstrated improvement.
+### Motion reaches future tokens, but the video does not reliably follow it
 
-| | single frame (official) | five frames (ours) |
-|---|---|---|
-| warm policy call, until actions are on the CPU | 0.80 s | 1.03 s |
-| VAE encoding of the observation | 9.6 ms | 152 ms |
-| output | 32 × 8 action chunk | 32 × 8 action chunk |
+Base **Cosmos3-Nano** and the DROID policy receive identical five-frame histories (15 fps, spanning 0.27 s). Over the next 1.6 s, reversing the history direction shifts base Nano's predicted ball displacement by **74–88 px** (ground truth ≈80 px), versus **−9 to +17 px** for DROID across three seeds and two camera views.
 
-*One H100, four denoising steps, guidance 3, shift 5. Median of 20 warm in-process calls; video decoding and network round trip excluded. VAE time is the synchronized stage time.*
+![Base Nano vs DROID vs ground truth, rightward and leftward histories](media/rolling_ball_comparison.gif)
 
-Profiling shows denoising takes about 92% of a single-frame request, and disabling video decoding still leaves the video latents being denoised with the actions.
+*Rows: base Nano, DROID, ground truth; cyan ring: last observed position. Both use 35 denoising steps and guidance 3. Base Nano generates video only; DROID jointly generates video and actions. A separate video-only test of DROID also failed to restore history-following.*
 
-## 4. Executing the actions in simulation
-We executed the policy's actions in the official RoboLab / Isaac Sim `BananaInBowlTask` (our evaluation environment).
-- **Initial static benchmark:** 3/3 successes.
-- **Anticipation test** (banana in a single pass at 0.05 m/s): single-frame and five-frame inputs both grasped **0/6**, with no consistent anticipatory positioning. From the same start, a static banana was grasped 2/3 and 3/3, and a scripted controller using ground-truth motion grasped the moving banana in both directions.
+We then froze DROID and trained **linear velocity probes** on its four-step inference features. Each position had five motion histories ending in an identical image; train/test positions were separated. Velocity was readable from both history and future tokens. A representative future-token probe had **0.004 m/s** test error and correctly recovered the sign of an unseen intermediate speed, ±0.30 m/s. Repeating the final frame removed this ability.
 
-These tests are small (3 seeds per condition) and do **not** show that inference latency caused the failures.
+These probes read **input motion**, not future-position accuracy. Future tokens carry motion information, but that alone does not establish how the generator uses it. Five-frame conditioning is an experimental extension outside this checkpoint's single-observation fine-tuning setting.
 
-[![Predicted video vs executed actions, banana moving](media/moving_banana_pred_vs_exec.gif)](media/moving_banana_pred_vs_exec.mp4)
+### Static grasping exposed a separate execution problem
 
-*First predicted video (left) vs executed actions (right); top single-frame, bottom five-frame, same latest image. Cyan circle = banana at the first observation: it stays put in both predictions but slides away in reality. Click for the MP4.*
+In our custom **MuJoCo** scene, DROID grasped a stationary ball **0/3** times; a scripted controller using the same action interface succeeded **3/3**. The policy approached the ball but closed too early, too high, or off target.
 
-## Research direction
-**Can motion information that becomes available early inside a world-action model be used to update or correct actions that are still being generated, or not yet executed, as fresh observations arrive?**
+In the official **RoboLab / Isaac Sim** banana-in-bowl task, the same checkpoint succeeded **3/3**. This establishes a working manipulation baseline, not the cause of the earlier failure: object, visuals, physics, and controller settings all changed. DROID policy post-training uses **real-robot data**; Isaac is our evaluation environment.
 
-This is a direction to investigate, not an implemented method: the motion signal appears early, a fresh single-frame encode costs about 10 ms, yet the policy currently neither predicts nor acts on the motion.
+### Successful static manipulation did not yield reliable anticipation
 
-## Collaboration
-I am looking for **access to a robot arm** for a small experiment with a slowly moving object, and welcome collaboration where interests overlap.
+In a later test requiring advance positioning for a banana moving at 0.05 m/s, single-frame and five-frame inputs both grasped **0/6**. Neither consistently aimed ahead. From that test's own starting pose, static grasping succeeded **2/3** and **3/3**, respectively; a ground-truth anticipatory controller caught the moving banana in both directions.
 
-*Detailed reports (motion study, profiling, grasping experiments) are in a private repository and available on request:
+[![Predicted video vs actual execution for the moving banana](media/moving_banana_pred_vs_exec.gif)](media/moving_banana_pred_vs_exec.mp4)
+
+*Prediction left, execution right; single-frame top, five-frame bottom. The predicted banana stays near its initial position while the actual banana moves away. Click for MP4.*
+
+This small test did not establish a latency-caused failure: simulation paused during inference, and no extra delay was injected.
+
+## 2. Inference cost and when motion information becomes available
+
+We extended the official input to five observed frames without retraining. This enabled history experiments, but did not produce a consistent behavioral improvement.
+
+| Measurement | Single frame (official) | Five frames (experimental) |
+|---|---:|---:|
+| Warm policy call, actions returned to CPU | **0.80 s** | **1.03 s** |
+| VAE encoding | **9.6 ms** | **152 ms** |
+| Action output | 32 × 8 | 32 × 8 |
+
+*One H100; four UniPC steps, guidance 3, shift 5; 20 warm calls. Network and video decoding excluded. VAE timings use synchronized stage measurements.*
+
+Denoising accounts for about **92%** of the single-frame request; skipping video decoding still leaves video-latent denoising. In the five-frame probe experiment, motion-bearing transformer features were available at **0.21–0.28 s**, before actions arrived at approximately **1.02 s**. Early availability motivates correction experiments; it does not yet establish an effective correction method.
+
+## Research direction and collaboration
+
+**Can fresh observations and early motion features help correct actions that are still being generated or have not yet been executed?**
+
+I welcome collaboration and access to a robot-arm setup for a small moving-object experiment.
+
+Detailed reports are in a private repository and available on request:
 [motion study](https://github.com/jindajia/WAM-Latency-Research/blob/main/REPORT.md) ·
 [profiling](https://github.com/jindajia/WAM-Latency-Research/blob/main/PROFILING.md) ·
-[grasping](https://github.com/jindajia/WAM-Latency-Research/blob/main/reports/8_droid_grasp_pilot/REPORT_droid_grasp_pilot.md).*
+[grasping](https://github.com/jindajia/WAM-Latency-Research/blob/main/reports/8_droid_grasp_pilot/REPORT_droid_grasp_pilot.md).

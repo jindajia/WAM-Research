@@ -43,7 +43,7 @@ These probes read **input motion**, not future-position accuracy. Future tokens 
 
 ### Static ball grasping in MuJoCo
 
-In our custom **MuJoCo** scene, DROID grasped a stationary ball **0/3** times; a scripted controller using the same action interface succeeded **3/3**. The policy approached the ball but closed too early, too high, or off target.
+In our custom **MuJoCo** scene, DROID grasped a stationary ball **0/3** times. The policy approached the ball but closed too early, too high, or off target.
 
 [<img src="media/mujoco_static_ball_failure.gif" width="420" alt="DROID policy failing to grasp a stationary ball in MuJoCo">](media/mujoco_static_ball_failure.mp4)
 

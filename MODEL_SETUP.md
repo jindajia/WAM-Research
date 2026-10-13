@@ -24,17 +24,66 @@ The 32 future frames cover approximately **2.13 s at 15 fps**; our rolling-ball 
 
 Our earlier Nano demonstration used a different configuration: five 24-fps frames from one 720p camera and a 189-frame output clip. The table describes the later matched-input comparison. Five frames is our selected conditioning length, not a universal requirement for every Nano task.
 
-## From observations to predictions
+## Model architecture and data flow
 
-Cosmos3 uses a **Mixture-of-Transformers (MoT)** architecture: an autoregressive transformer handles discrete text tokens, while a diffusion transformer generates continuous modalities, including video and actions ([model architecture](https://huggingface.co/nvidia/Cosmos3-Nano#model-architecture)).
+Cosmos3 uses a **Mixture-of-Transformers (MoT)** architecture: an autoregressive transformer handles discrete text tokens, while a diffusion transformer generates continuous modalities. The diagram shows the **DROID generation path** used in our experiments, with preprocessing and sampling details grouped for readability ([architecture](https://huggingface.co/nvidia/Cosmos3-Nano#model-architecture), [policy modules](https://arxiv.org/html/2606.02800v4#S4.SS2.SSS5)).
 
-For the generation paths studied here:
+```mermaid
+flowchart TB
+    images["Camera observations: 1 or 5 timestamps"] --> vae["Video VAE encoder"]
+    state["Current robot state"] --> ae["Action / state encoder"]
+    prompt["Task instruction"] --> reasoner
+    noise["Noise for future video and actions"] --> generator
 
-1. **Encode observations.** A video VAE compresses the observed images across space and time into visual latents. Text supplies the instruction; DROID also receives robot-state conditioning.
-2. **Predict the future.** The generator iteratively denoises future video latents and, for DROID, action representations together. It does not first finish a video and then extract actions from that video.
-3. **Return outputs.** The VAE decodes video latents into viewable frames; the policy returns numeric actions for the robot controller. Skipping video decoding saves that stage, but still leaves video-latent denoising.
+    subgraph mot["Cosmos3 MoT backbone"]
+        reasoner["Reasoner: text conditioning"]
+        generator["Generator: joint video and action denoising"]
+        reasoner -->|"Text context"| generator
+    end
 
-A denoising step refines the whole predicted sequence; it is not one robot action or one video frame.
+    vae -->|"Observed visual latents"| generator
+    ae -->|"Robot-state conditioning"| generator
+    generator -->|"Video latents"| vd["VAE decoder: optional"]
+    vd --> video["Predicted video"]
+    generator -->|"Action representations"| ad["Action-decoding MLP"]
+    ad --> actions["Action chunk: 32 x 8"]
+
+    classDef module fill:#e8f0fe,stroke:#5477a8,color:#172b4d
+    classDef output fill:#e8f5e9,stroke:#54845b,color:#173d20
+    class vae,ae,reasoner,generator,vd,ad module
+    class video,actions output
+```
+
+**Reading the diagram.** The VAE compresses observations across space and time. The generator uses those latents, task text, and robot state to jointly refine the future video and action sequence. The action-decoding MLP maps action features to numeric controls; actions are not extracted from an already decoded video. The diagram groups the repeated generator/sampler updates into one block.
+
+**Time and computation.** FPS supplies temporal-position information. Each denoising step refines the whole future sequence; it is not one action or one video frame. Our standard DROID request uses four steps. Video decoding is an optional output stage: disabling it still leaves video-latent denoising.
+
+**Base Nano comparison.** Our video-only Nano runs use the visual and text pathways, without the robot-state/action branch. This figure focuses on the generation workflow, rather than every modality or visual-reasoning pathway supported by Cosmos3.
+
+## Closed-loop inference and execution
+
+The model above is one component of the robot loop. The simulator supplies real observations for the next request.
+
+```mermaid
+flowchart TB
+    world["Simulator: robot and objects"] -->|"Render cameras; read robot state"| obs["Build observation: current frame or 5-frame history"]
+    obs -->|"Observations + task + FPS"| policy["DROID inference: model above"]
+    policy -->|"32 x 8 action chunk"| buffer["Action buffer: select execution window"]
+    buffer --> controller["Robot controller"]
+    controller -->|"Apply commands; advance physics"| world
+    policy -.->|"Optional VAE decode"| diagnostic["Predicted video: inspect or score"]
+
+    classDef model fill:#e8f0fe,stroke:#5477a8,color:#172b4d
+    classDef env fill:#fff3e0,stroke:#b78132,color:#513800
+    classDef optional fill:#f4f4f4,stroke:#888,color:#333
+    class policy model
+    class world,controller env
+    class diagnostic optional
+```
+
+The controller executes a configured window of actions before the next observation and inference cycle. The **next input comes from the simulator**, not from the predicted video. In the five-frame variant, the observation builder supplies recent rendered frames; the tested policy does not keep visual memory between requests.
+
+The diagram describes logical data flow, not guaranteed concurrency. Whether physics pauses during inference or continues while actions are pending is an evaluator setting, recorded per experiment.
 
 ## How we evaluate
 

@@ -43,6 +43,10 @@ These probes read **input motion**, not future-position accuracy. Future tokens 
 
 In our custom **MuJoCo** scene, DROID grasped a stationary ball **0/3** times; a scripted controller using the same action interface succeeded **3/3**. The policy approached the ball but closed too early, too high, or off target.
 
+[<img src="media/mujoco_static_ball_failure.gif" width="420" alt="DROID policy failing to grasp a stationary ball in MuJoCo">](media/mujoco_static_ball_failure.mp4)
+
+*One of the three trials, in the policy's own camera views (wrist on top), 2× speed. The gripper reaches the ball but closes too high, then knocks it away. Click for the real-time MP4.*
+
 ### Static banana manipulation, then moving-target tests in Isaac Sim
 
 In the official **RoboLab / Isaac Sim** banana-in-bowl task, the same checkpoint succeeded **3/3**. This establishes a working manipulation baseline, not the cause of the earlier failure: object, visuals, physics, and controller settings all changed. DROID policy post-training uses **real-robot data**; Isaac is our evaluation environment.

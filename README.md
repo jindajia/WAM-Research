@@ -9,6 +9,8 @@ We study whether world-action models use observed object motion to predict and a
 
 DROID is post-trained on real-robot DROID data from a **mid-trained Cosmos3-Nano checkpoint**, rather than necessarily from the released Nano checkpoint tested here ([training details, §4.2.5](https://arxiv.org/html/2606.02800v4#S4.SS2.SSS5)).
 
+[**Model setup**](MODEL_SETUP.md): inputs, outputs, model architecture, and the closed-loop workflow.
+
 ## What we tested and observed
 
 1. **Base Nano followed the rolling ball's motion; DROID did not reliably predict it.**
@@ -73,11 +75,7 @@ We extended the official input to five observed frames without retraining. This 
 
 Denoising accounts for about **92%** of the single-frame request; skipping video decoding still leaves video-latent denoising. In the five-frame probe experiment, motion-bearing transformer features were available at **0.21–0.28 s**, before actions arrived at approximately **1.02 s**. Early availability motivates correction experiments; it does not yet establish an effective correction method.
 
-## Research direction and collaboration
-
-**Can fresh observations and early motion features help correct actions that are still being generated or have not yet been executed?**
-
-I welcome collaboration and access to a robot-arm setup for a small moving-object experiment.
+## Detailed reports
 
 Detailed reports are in a private repository and available on request:
 [motion study](https://github.com/jindajia/WAM-Latency-Research/blob/main/REPORT.md) ·
